@@ -219,7 +219,6 @@ def generate_medicine_csv_bytes(
     for record in batch.records:
         row = []
         for h in headers:
-            val = ""
             if h == "Medicine Name":
                 val = record.medicine_name
             elif h == "Source URL":
@@ -228,6 +227,9 @@ def generate_medicine_csv_bytes(
                 val = record.extracted_at
             elif h in record.attributes:
                 val = record.attributes[h]
+            else:
+                attr_name = h.lower().replace(" / composition", "").replace(" ", "_")
+                val = getattr(record, attr_name, "") or ""
 
             if isinstance(val, (dict, list)):
                 import json
@@ -282,12 +284,28 @@ def generate_medicine_txt_bytes(
             lines.append(f"Marketer             : {rec.marketer}")
         if rec.price:
             lines.append(f"Price                : {rec.price}")
+        if rec.drug_schedule:
+            lines.append(f"Drug Schedule        : {rec.drug_schedule}")
+        if rec.pack_quantity:
+            lines.append(f"Pack Quantity        : {rec.pack_quantity}")
+        if rec.tags:
+            lines.append(f"Tags                 : {rec.tags}")
+        if rec.safety_advice:
+            lines.append(f"Safety Advice        : {rec.safety_advice}")
 
-        standard_keys = {
-            "Medicine Name", "Brand", "Strength", "Dosage Form", "Active Ingredients",
-            "Manufacturer", "Marketer", "Price", "Source URL", "Extracted At"
+        from backend.field_normalizer import STANDARD_MASTER_COLUMNS, normalize_field_name
+        standard_keys = set(STANDARD_MASTER_COLUMNS) | {
+            "Active Ingredients", "Source URL", "Extracted At", "Scrape Status"
         }
-        dynamic_keys = [k for k in rec.attributes.keys() if k not in standard_keys]
+        dynamic_keys = []
+        for k in rec.attributes.keys():
+            if k in standard_keys:
+                continue
+            canon, _ = normalize_field_name(k)
+            if canon and canon in standard_keys:
+                continue
+            dynamic_keys.append(k)
+
         for k in sorted(dynamic_keys):
             v = rec.attributes[k]
             lines.append(f"{k.ljust(21)}: {v}")

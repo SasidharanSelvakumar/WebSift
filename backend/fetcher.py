@@ -8,7 +8,9 @@ from backend.url_validator import validate_and_sanitize_url, SSRFProtectionError
 
 class FetchError(Exception):
     """Raised when HTTP fetching fails."""
-    pass
+    def __init__(self, message: str, status_code: Optional[int] = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class ContentTooLargeError(FetchError):
@@ -109,7 +111,8 @@ async def fetch_html(
                     # Check HTTP status
                     if response.status_code >= 400:
                         raise FetchError(
-                            f"Webpage returned error status code: {response.status_code} ({response.reason_phrase})"
+                            f"Webpage returned error status code: {response.status_code} ({response.reason_phrase})",
+                            status_code=response.status_code,
                         )
 
                     # Check Content-Type (must be HTML or text)

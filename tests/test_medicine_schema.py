@@ -1,16 +1,20 @@
 import pytest
-from backend.field_normalizer import normalize_field_name, compute_batch_field_union
+from backend.field_normalizer import normalize_field_name, compute_batch_field_union, STANDARD_MASTER_COLUMNS
 from backend.medicine_models import MedicineBatch, MedicineRecord
 
 
 def test_field_normalization_and_alias_mapping():
-    # MRP -> Price
+    # MRP is kept as distinct MRP field
     canon, raw = normalize_field_name("MRP")
-    assert canon == "Price"
+    assert canon == "MRP"
     assert raw == "MRP"
 
-    # Maximum Retail Price -> Price
+    # Maximum Retail Price -> MRP
     canon, raw = normalize_field_name("Maximum Retail Price")
+    assert canon == "MRP"
+
+    # Price / Our Price -> Price
+    canon, raw = normalize_field_name("Our Price")
     assert canon == "Price"
 
     # Manufactured By -> Manufacturer
@@ -24,17 +28,28 @@ def test_field_normalization_and_alias_mapping():
     assert canon_mfg == "Manufacturer"
     assert canon_mkt != canon_mfg
 
-    # Active Ingredients / Composition
+    # Active Ingredients / Composition -> Active Ingredient / Composition
     canon, _ = normalize_field_name("Salt Composition")
-    assert canon == "Active Ingredients"
+    assert canon == "Active Ingredient / Composition"
 
-    # Pack Size
-    canon, _ = normalize_field_name("Pack Quantity")
-    assert canon == "Pack Size"
+    # Pack Size & Pack Quantity
+    canon_size, _ = normalize_field_name("Package Size")
+    assert canon_size == "Pack Size"
+
+    canon_qty, _ = normalize_field_name("Pack Quantity")
+    assert canon_qty == "Pack Quantity"
+
+    # Product names masquerading as headers are rejected
+    rejected_name, _ = normalize_field_name("Aciloc 150 Tablet")
+    assert rejected_name is None
+
+    # Promotional junk is rejected
+    rejected_promo, _ = normalize_field_name("Save More With Additional Offers")
+    assert rejected_promo is None
 
 
 def test_unseen_custom_field_discovery():
-    # An unfamiliar attribute must NOT be merged with standard fields or discarded
+    # Legitimate non-standard clinical/storage attribute is normalized to Title Case
     canon, raw = normalize_field_name("Special Bioavailability Ratio")
     assert canon == "Special Bioavailability Ratio"
     assert raw == "Special Bioavailability Ratio"
@@ -62,11 +77,11 @@ def test_batch_union_calculation():
             "Storage Instructions": "Store below 25°C",
         }
     }
-    # Medicine C (introduces Active Ingredients and Drug Interactions)
+    # Medicine C (introduces Active Ingredient / Composition and unmapped clinical attribute)
     rec_c = {
         "Medicine Name": "Medicine Gamma",
         "attributes": {
-            "Active Ingredients": "Amoxicillin",
+            "Active Ingredient / Composition": "Amoxicillin",
             "Drug Interactions": "Avoid alcohol",
             "Manufacturer": "Pharma Corp C",
         }
@@ -74,19 +89,18 @@ def test_batch_union_calculation():
 
     all_fields, new_unmapped = compute_batch_field_union([rec_a, rec_b, rec_c])
 
-    # Must contain the union of all attributes
-    assert "Medicine Name" in all_fields or "Price" in all_fields
+    # Must contain standard 21 columns
+    assert all_fields == STANDARD_MASTER_COLUMNS
+    assert "Medicine Name" in all_fields
     assert "Price" in all_fields
     assert "Strength" in all_fields
     assert "Manufacturer" in all_fields
     assert "Side Effects" in all_fields
     assert "Storage Instructions" in all_fields
-    assert "Active Ingredients" in all_fields
-    assert "Drug Interactions" in all_fields
+    assert "Active Ingredient / Composition" in all_fields
 
-    # Source tracking columns present
-    assert "Source URL" in all_fields
-    assert "Extracted At" in all_fields
+    # Extra legitimate specifications are routed to new_unmapped
+    assert "Drug Interactions" in new_unmapped
 
 
 def test_deterministic_record_id():

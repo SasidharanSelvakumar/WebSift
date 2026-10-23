@@ -1,4 +1,6 @@
 import {
+  CategoryJobResponse,
+  CategoryScrapeRequest,
   ExtractResponse,
   ExtractedItem,
   HealthStatus,
@@ -304,3 +306,165 @@ export async function pushToSpreadsheet(
 
   return res.json();
 }
+
+/**
+ * Initiates a Category Scraping Job in the background
+ */
+export async function startCategoryScrape(
+  params: CategoryScrapeRequest
+): Promise<CategoryJobResponse> {
+  const res = await fetch(`${API_BASE}/category/start`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(params),
+  });
+
+  if (!res.ok) {
+    let errorDetail = 'Category scrape request failed.';
+    try {
+      const errJson = await res.json();
+      errorDetail = errJson.detail || errorDetail;
+    } catch {
+      errorDetail = `Server returned ${res.status}`;
+    }
+    throw new Error(errorDetail);
+  }
+
+  return res.json();
+}
+
+/**
+ * Polls the live status of a Category Scraping Job
+ */
+export async function getCategoryJobStatus(jobId: string): Promise<CategoryJobResponse> {
+  const res = await fetch(`${API_BASE}/category/job/${encodeURIComponent(jobId)}`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch job status (${res.status})`);
+  }
+  return res.json();
+}
+
+/**
+ * Pauses a running Category Scraping Job
+ */
+export async function pauseCategoryJob(jobId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/category/job/${encodeURIComponent(jobId)}/pause`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    throw new Error('Failed to pause job');
+  }
+}
+
+/**
+ * Resumes a paused Category Scraping Job
+ */
+export async function resumeCategoryJob(jobId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/category/job/${encodeURIComponent(jobId)}/resume`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    throw new Error('Failed to resume job');
+  }
+}
+
+/**
+ * Stops an active Category Scraping Job
+ */
+export async function stopCategoryJob(jobId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/category/job/${encodeURIComponent(jobId)}/stop`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    throw new Error('Failed to stop job');
+  }
+}
+
+/**
+ * Retries failed products in a Category Scraping Job
+ */
+export async function retryCategoryFailed(jobId: string): Promise<number> {
+  const res = await fetch(`${API_BASE}/category/job/${encodeURIComponent(jobId)}/retry-failed`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    throw new Error('Failed to retry failed items');
+  }
+  const data = await res.json();
+  return data.retried_products_count || 0;
+}
+
+/**
+ * Downloads Master Excel (.xlsx) dataset
+ */
+export async function downloadMasterExcel(jobId?: string): Promise<string> {
+  const query = jobId ? `?job_id=${encodeURIComponent(jobId)}` : '';
+  const res = await fetch(`${API_BASE}/category/export/excel${query}`);
+  if (!res.ok) {
+    let errorDetail = 'Master Excel export failed.';
+    try {
+      const errJson = await res.json();
+      errorDetail = errJson.detail || errorDetail;
+    } catch {}
+    throw new Error(errorDetail);
+  }
+
+  const blob = await res.blob();
+  const filename = getFilenameFromHeader(
+    res.headers.get('Content-Disposition'),
+    'WebSift_Master.xlsx'
+  );
+  triggerBrowserDownload(blob, filename);
+  return filename;
+}
+
+/**
+ * Downloads Master CSV dataset
+ */
+export async function downloadMasterCsv(jobId?: string): Promise<string> {
+  const query = jobId ? `?job_id=${encodeURIComponent(jobId)}` : '';
+  const res = await fetch(`${API_BASE}/category/export/csv${query}`);
+  if (!res.ok) {
+    let errorDetail = 'Master CSV export failed.';
+    try {
+      const errJson = await res.json();
+      errorDetail = errJson.detail || errorDetail;
+    } catch {}
+    throw new Error(errorDetail);
+  }
+
+  const blob = await res.blob();
+  const filename = getFilenameFromHeader(
+    res.headers.get('Content-Disposition'),
+    'WebSift_Master.csv'
+  );
+  triggerBrowserDownload(blob, filename);
+  return filename;
+}
+
+/**
+ * Downloads Master TXT report
+ */
+export async function downloadMasterTxt(jobId?: string): Promise<string> {
+  const query = jobId ? `?job_id=${encodeURIComponent(jobId)}` : '';
+  const res = await fetch(`${API_BASE}/category/export/txt${query}`);
+  if (!res.ok) {
+    let errorDetail = 'Master TXT export failed.';
+    try {
+      const errJson = await res.json();
+      errorDetail = errJson.detail || errorDetail;
+    } catch {}
+    throw new Error(errorDetail);
+  }
+
+  const blob = await res.blob();
+  const filename = getFilenameFromHeader(
+    res.headers.get('Content-Disposition'),
+    'WebSift_Master.txt'
+  );
+  triggerBrowserDownload(blob, filename);
+  return filename;
+}
+

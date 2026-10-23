@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+**/__pycache__/**
+*.py[cod]
+*$py.class
+*.env
+.venv/
+venv/
+.pytest_cache/
+
+# Local SQLite Database
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Export files and backups
+WebSift_Master.xlsx
+WebSift_Master.csv
+WebSift_Master.txt
+WebSift_Master_backup*
+*.xlsx

@@ -34,6 +34,10 @@ class MedicineRecord(BaseModel):
     strength: Optional[str] = Field(default=None, description="Potency / dosage strength (e.g. 500 mg, 40 mcg)")
     dosage_form: Optional[str] = Field(default=None, description="Dosage form (e.g. Tablet, Injection, Syrup)")
     active_ingredients: Optional[str] = Field(default=None, description="Active composition / salt")
+    drug_schedule: Optional[str] = Field(default=None, description="Explicitly stated drug schedule (e.g. Schedule H, Schedule H1, Schedule X)")
+    pack_quantity: Optional[str] = Field(default=None, description="Stated package size or quantity for the active variant")
+    tags: Optional[str] = Field(default=None, description="Explicit product tags or labels")
+    safety_advice: Optional[str] = Field(default=None, description="Medicine-specific safety advice and precautions by subsection")
     
     # Data quality & duplicate flags
     warnings: List[str] = Field(default_factory=list, description="Data quality or extraction warnings")

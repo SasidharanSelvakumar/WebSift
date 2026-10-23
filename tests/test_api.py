@@ -258,3 +258,30 @@ def test_spreadsheet_destinations_and_push(tmp_path):
     assert push2_data["inserted_records"] == 1
     assert "Pediatric Dosage" in push2_data["newly_created_columns"]
     assert "Storage Condition" in push2_data["newly_created_columns"]
+
+
+def test_category_api_workflow():
+    start_res = client.post(
+        "/api/category/start",
+        json={
+            "category_url": "https://example.com/drugs-all-medicines",
+            "max_pages": 2,
+            "max_products": 10,
+            "delay_seconds": 0.1,
+        }
+    )
+    assert start_res.status_code == 200
+    data = start_res.json()
+    assert "job_id" in data
+    assert data["job_status"] == "running"
+
+    job_id = data["job_id"]
+    status_res = client.get(f"/api/category/job/{job_id}")
+    assert status_res.status_code == 200
+    status_data = status_res.json()
+    assert status_data["job_id"] == job_id
+
+    pause_res = client.post(f"/api/category/job/{job_id}/pause")
+    assert pause_res.status_code == 200
+    assert pause_res.json()["status"] == "paused"
+

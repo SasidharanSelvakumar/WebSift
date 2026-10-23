@@ -11,10 +11,13 @@ import { MedicineTable } from './components/MedicineTable';
 import { SpreadsheetPushModal } from './components/SpreadsheetPushModal';
 import { checkBackendHealth, extractWebpage } from './api';
 import { ExtractResponse, HealthStatus } from './types';
-import { AlertCircle, Table, BookOpen, Code, CheckCircle, X, Pill } from 'lucide-react';
+import { AlertCircle, Table, BookOpen, Code, CheckCircle, X, Pill, Layers } from 'lucide-react';
+import { CategoryScraperView } from './components/CategoryScraperView';
+import { ScrapingMode } from './types';
 
 export const App: React.FC = () => {
   const [health, setHealth] = useState<HealthStatus | null>(null);
+  const [scrapingMode, setScrapingMode] = useState<ScrapingMode>('single');
   const [isLoading, setIsLoading] = useState(false);
   const [extractionResult, setExtractionResult] = useState<ExtractResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -104,40 +107,81 @@ export const App: React.FC = () => {
 
       {/* Main Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {/* Hero & Input Section */}
-        {!extractionResult && (
-          <div className="text-center space-y-3 pt-6 pb-2">
-            <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
-              Precision Web Scraping & Content Export
-            </h1>
-            <p className="text-sm sm:text-base text-slate-400 max-w-2xl mx-auto leading-relaxed">
-              Extract readable textual content and dynamic medicine details with automatic attribute discovery. Download as <span className="text-emerald-400 font-semibold">Excel (.xlsx)</span>, <span className="text-teal-400 font-semibold">CSV</span>, or <span className="text-sky-400 font-semibold">TXT</span>, or push directly to spreadsheets.
-            </p>
+        {/* Scraping Mode Switcher */}
+        <div className="flex justify-center">
+          <div className="inline-flex p-1.5 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl">
+            <button
+              type="button"
+              onClick={() => setScrapingMode('single')}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                scrapingMode === 'single'
+                  ? 'bg-gradient-to-r from-brand-500 to-emerald-600 text-slate-950 shadow-md shadow-brand-500/20'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Pill className="w-4 h-4" />
+              <span>Mode A: Single Product</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setScrapingMode('category')}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                scrapingMode === 'category'
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              <span>Mode B: Scrape Entire Category</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-slate-950/40 text-emerald-950 font-bold">
+                NEW
+              </span>
+            </button>
           </div>
+        </div>
+
+        {/* Mode B: Category Scraper */}
+        {scrapingMode === 'category' && (
+          <CategoryScraperView onNotify={handleNotify} />
         )}
 
-        <UrlInputBar onSubmit={handleExtract} isLoading={isLoading} />
-
-        {/* Loading Progress */}
-        {isLoading && <LoadingState />}
-
-        {/* Error Alert */}
-        {error && !isLoading && (
-          <div className="w-full max-w-3xl mx-auto glass-panel p-5 rounded-2xl border border-rose-500/30 bg-rose-500/5 shadow-2xl flex items-start gap-3.5 text-rose-200">
-            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <h3 className="font-bold text-sm text-rose-300">Extraction Error</h3>
-              <p className="text-xs sm:text-sm text-rose-200/90 leading-relaxed">{error}</p>
-              <div className="text-[11px] text-rose-300/70 pt-1">
-                Tip: Verify the URL is publicly reachable, uses HTTP/HTTPS, and is not a private or restricted network address.
+        {/* Mode A: Single Product Scraping */}
+        {scrapingMode === 'single' && (
+          <>
+            {/* Hero & Input Section */}
+            {!extractionResult && (
+              <div className="text-center space-y-3 pt-4 pb-2">
+                <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
+                  Precision Product Scraping & Export
+                </h1>
+                <p className="text-sm sm:text-base text-slate-400 max-w-2xl mx-auto leading-relaxed">
+                  Extract readable textual content and dynamic medicine details with automatic attribute discovery. Download as <span className="text-emerald-400 font-semibold">Excel (.xlsx)</span>, <span className="text-teal-400 font-semibold">CSV</span>, or <span className="text-sky-400 font-semibold">TXT</span>, or push directly to spreadsheets.
+                </p>
               </div>
-            </div>
-          </div>
-        )}
+            )}
 
-        {/* Successful Result Views */}
-        {extractionResult && !isLoading && (
-          <div className="space-y-6 animate-fadeIn">
+            <UrlInputBar onSubmit={handleExtract} isLoading={isLoading} />
+
+            {/* Loading Progress */}
+            {isLoading && <LoadingState />}
+
+            {/* Error Alert */}
+            {error && !isLoading && (
+              <div className="w-full max-w-3xl mx-auto glass-panel p-5 rounded-2xl border border-rose-500/30 bg-rose-500/5 shadow-2xl flex items-start gap-3.5 text-rose-200">
+                <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <h3 className="font-bold text-sm text-rose-300">Extraction Error</h3>
+                  <p className="text-xs sm:text-sm text-rose-200/90 leading-relaxed">{error}</p>
+                  <div className="text-[11px] text-rose-300/70 pt-1">
+                    Tip: Verify the URL is publicly reachable, uses HTTP/HTTPS, and is not a private or restricted network address.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Successful Result Views */}
+            {extractionResult && !isLoading && (
+              <div className="space-y-6 animate-fadeIn">
             {/* Top Stats Banner */}
             <StatsBanner data={extractionResult} />
 
@@ -238,6 +282,8 @@ export const App: React.FC = () => {
             </div>
           </div>
         )}
+      </>
+    )}
 
         {/* Spreadsheet Push Modal */}
         {showPushModal && extractionResult?.medicine_batch && (

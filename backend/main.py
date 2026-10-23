@@ -28,7 +28,22 @@ from backend.medicine_models import (
     SpreadsheetPushRequest,
     SpreadsheetPushResponse,
 )
+from backend.url_validator import SSRFProtectionError, validate_and_sanitize_url
+from backend.category_scraper import (
+    CategoryScraperRunner,
+    active_jobs,
+    start_category_scrape_job,
+)
+from backend.database import get_db
+from backend.master_export import (
+    generate_master_csv,
+    generate_master_excel,
+    generate_master_txt,
+)
+from backend.repair_service import repair_and_clean_database
 from backend.models import (
+    CategoryJobResponse,
+    CategoryScrapeRequest,
     ExportRequest,
     ExtractRequest,
     ExtractResponse,
@@ -38,7 +53,7 @@ from backend.spreadsheet_service import (
     get_default_destinations,
     get_spreadsheet_provider,
 )
-from backend.url_validator import SSRFProtectionError, validate_and_sanitize_url
+
 
 # Configure Logging
 logging.basicConfig(
@@ -424,6 +439,322 @@ async def push_to_spreadsheet(req: SpreadsheetPushRequest):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Spreadsheet integration error: {str(e)}",
+        )
+
+
+# ==========================================
+# Category-Wide Scraping Endpoints
+# ==========================================
+
+@app.post("/api/category/start", response_model=CategoryJobResponse)
+async def start_category_scrape(req: CategoryScrapeRequest):
+    """
+    Initiates category-wide scraping job in the background.
+    Discovers listing pages and extracts all available products into persistent SQLite storage.
+    """
+    raw_url = str(req.category_url).strip()
+    try:
+        sanitized_url, _ = validate_and_sanitize_url(raw_url)
+    except SSRFProtectionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Security Restriction: {str(e)}",
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid URL: {str(e)}",
+        )
+
+    try:
+        job_data = start_category_scrape_job(
+            category_url=sanitized_url,
+            max_pages=req.max_pages,
+            max_products=req.max_products,
+            delay_seconds=req.delay_seconds,
+            product_selector=req.product_selector,
+            next_page_selector=req.next_page_selector,
+            force_browser=req.force_browser,
+        )
+        return CategoryJobResponse(**job_data)
+    except Exception as e:
+        logger.error(f"Failed to start category scrape job: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to initiate category scrape: {str(e)}",
+        )
+
+
+@app.get("/api/category/jobs")
+async def list_category_jobs():
+    """
+    Returns list of category scraping jobs.
+    """
+    db = get_db()
+    return db.list_jobs(limit=25)
+
+
+@app.get("/api/category/job/{job_id}", response_model=CategoryJobResponse)
+async def get_category_job_status(job_id: str):
+    """
+    Retrieves live status, progress indicators, and tracked products for a category scraping job.
+    """
+    db = get_db()
+    job = db.get_job(job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job '{job_id}' not found.",
+        )
+
+    # Attach recent products for the live UI feed
+    recent_products = db.get_job_products(job_id, limit=50)
+    job["products"] = recent_products
+    return CategoryJobResponse(**job)
+
+
+@app.post("/api/category/job/{job_id}/pause")
+async def pause_category_job(job_id: str):
+    """
+    Pauses an ongoing category scrape job.
+    """
+    runner = active_jobs.get(job_id)
+    if runner:
+        runner.pause()
+    else:
+        db = get_db()
+        db.update_job_status(job_id, "paused")
+
+    return {"success": True, "job_id": job_id, "status": "paused"}
+
+
+@app.post("/api/category/job/{job_id}/resume")
+async def resume_category_job(job_id: str):
+    """
+    Resumes a paused or interrupted category scrape job.
+    """
+    runner = active_jobs.get(job_id)
+    if runner:
+        runner.resume()
+    else:
+        # Re-instantiate runner for interrupted job
+        db = get_db()
+        job = db.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+        config = job.get("config", {})
+        new_runner = CategoryScraperRunner(
+            job_id=job_id,
+            category_url=job["category_url"],
+            db=db,
+            max_pages=config.get("max_pages"),
+            max_products=config.get("max_products"),
+            delay_seconds=config.get("delay_seconds", 1.0),
+            product_selector=config.get("product_selector"),
+            next_page_selector=config.get("next_page_selector"),
+            force_browser=config.get("force_browser", False),
+        )
+        active_jobs.register(job_id, new_runner)
+        new_runner.start()
+
+    return {"success": True, "job_id": job_id, "status": "running"}
+
+
+@app.post("/api/category/job/{job_id}/stop")
+async def stop_category_job(job_id: str):
+    """
+    Stops a running category scrape job.
+    """
+    runner = active_jobs.get(job_id)
+    if runner:
+        runner.stop()
+    else:
+        db = get_db()
+        db.update_job_status(job_id, "stopped")
+
+    return {"success": True, "job_id": job_id, "status": "stopped"}
+
+
+@app.post("/api/category/job/{job_id}/retry-failed")
+async def retry_category_failed(job_id: str):
+    """
+    Resets failed products and failed listing pages to pending and restarts scraper loop.
+    """
+    db = get_db()
+    failed_prod_count = db.retry_failed_products(job_id)
+    failed_page_count = db.retry_failed_listing_pages(job_id)
+    count = failed_prod_count + failed_page_count
+    if count > 0:
+        runner = active_jobs.get(job_id)
+        if not runner or (runner._task and runner._task.done()):
+            job = db.get_job(job_id)
+            if job:
+                config = job.get("config", {})
+                new_runner = CategoryScraperRunner(
+                    job_id=job_id,
+                    category_url=job["category_url"],
+                    db=db,
+                    max_pages=config.get("max_pages"),
+                    max_products=config.get("max_products"),
+                    delay_seconds=config.get("delay_seconds", 1.0),
+                    product_selector=config.get("product_selector"),
+                    next_page_selector=config.get("next_page_selector"),
+                    force_browser=config.get("force_browser", False),
+                )
+                active_jobs.register(job_id, new_runner)
+                new_runner.start()
+
+    return {"success": True, "job_id": job_id, "retried_products_count": count}
+
+
+# ==========================================
+# Master Dataset Export Endpoints
+# ==========================================
+
+@app.get("/api/category/export/excel")
+async def export_category_master_excel(job_id: Optional[str] = None):
+    """
+    Generates and returns the combined WebSift_Master.xlsx Excel workbook
+    containing all accumulated products with dynamic column unions.
+    """
+    db = get_db()
+    products = db.get_all_products(job_id=job_id)
+    if not products and job_id:
+        products = db.get_all_products()
+    if not products:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No completed products found in the database for master export.",
+        )
+
+    try:
+        xlsx_bytes, filename = generate_master_excel(products, filename="WebSift_Master.xlsx")
+        return Response(
+            content=xlsx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(len(xlsx_bytes)),
+                "Access-Control-Expose-Headers": "Content-Disposition",
+            },
+        )
+    except Exception as e:
+        logger.error(f"Master Excel export error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate Master Excel workbook: {str(e)}",
+        )
+
+
+@app.get("/api/category/export/csv")
+async def export_category_master_csv(job_id: Optional[str] = None):
+    """
+    Generates and returns the combined Master CSV file encoded in UTF-8 with BOM.
+    """
+    db = get_db()
+    products = db.get_all_products(job_id=job_id)
+    if not products and job_id:
+        products = db.get_all_products()
+    if not products:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No completed products found in the database for master export.",
+        )
+
+    try:
+        csv_bytes, filename = generate_master_csv(products, filename="WebSift_Master.csv")
+        return Response(
+            content=csv_bytes,
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(len(csv_bytes)),
+                "Access-Control-Expose-Headers": "Content-Disposition",
+            },
+        )
+    except Exception as e:
+        logger.error(f"Master CSV export error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate Master CSV file: {str(e)}",
+        )
+
+
+@app.get("/api/category/export/txt")
+async def export_category_master_txt(job_id: Optional[str] = None):
+    """
+    Generates and returns the combined Master plain text document with formatted product cards.
+    """
+    db = get_db()
+    products = db.get_all_products(job_id=job_id)
+    if not products and job_id:
+        products = db.get_all_products()
+    if not products:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No completed products found in the database for master export.",
+        )
+
+    try:
+        txt_bytes, filename = generate_master_txt(products, filename="WebSift_Master.txt")
+        return Response(
+            content=txt_bytes,
+            media_type="text/plain; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(len(txt_bytes)),
+                "Access-Control-Expose-Headers": "Content-Disposition",
+            },
+        )
+    except Exception as e:
+        logger.error(f"Master TXT export error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate Master TXT file: {str(e)}",
+        )
+
+
+@app.post("/api/category/repair-database")
+async def repair_database_endpoint():
+    """
+    Safely cleans existing database records:
+    - Backs up the SQLite database with timestamp.
+    - Purges non-medicine URLs (cancer care, prescriptions, subscriptions).
+    - Cleans attributes and maps genuine medicine fields.
+    - Regenerates WebSift_Master.xlsx, WebSift_Master.csv, and WebSift_Master.txt.
+    """
+    try:
+        db = get_db()
+        result = repair_and_clean_database(db)
+        return result
+    except Exception as e:
+        logger.exception(f"Database repair failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database repair failed: {str(e)}",
+        )
+
+
+@app.post("/api/category/reprocess-database")
+async def reprocess_database_endpoint():
+    """
+    Safely reprocesses existing product URLs through the corrected extractor:
+    - Backs up the SQLite database and export files with timestamp.
+    - Re-extracts clean product details using the corrected pipeline.
+    - Validates company names, composition, MRP/price, and storage instructions.
+    - Regenerates WebSift_Master.xlsx, WebSift_Master.csv, WebSift_Master.txt, and C1 medicines.xlsx.
+    """
+    try:
+        from backend.repair_service import reprocess_product_records
+        db = get_db()
+        result = reprocess_product_records(db)
+        return result
+    except Exception as e:
+        logger.exception(f"Database reprocess failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database reprocess failed: {str(e)}",
         )
 
 

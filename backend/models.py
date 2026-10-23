@@ -1,4 +1,4 @@
-from typing import Any, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, HttpUrl
 
 
@@ -66,3 +66,35 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     playwright_available: bool
+
+
+class CategoryScrapeRequest(BaseModel):
+    category_url: str = Field(..., description="Target category or listing page URL")
+    max_pages: Optional[int] = Field(default=None, ge=1, le=10000, description="Maximum listing pages to traverse (None for all pages)")
+    max_products: Optional[int] = Field(default=None, ge=1, le=50000, description="Maximum products to scrape (None for all products)")
+    delay_seconds: float = Field(default=1.0, ge=0.0, le=10.0, description="Polite request delay in seconds")
+    product_selector: Optional[str] = Field(default=None, description="Optional CSS selector for product links")
+    next_page_selector: Optional[str] = Field(default=None, description="Optional CSS selector for Next page pagination")
+    force_browser: bool = Field(default=False, description="Force headless browser rendering for JS pagination")
+
+
+class CategoryJobResponse(BaseModel):
+    job_id: str
+    category_url: str
+    job_status: str
+    start_time: str
+    last_updated_time: str
+    completion_time: Optional[str] = None
+    pages_visited: int = 0
+    total_discovered: int = 0
+    total_completed: int = 0
+    total_failed: int = 0
+    total_skipped: int = 0
+    current_page_url: Optional[str] = None
+    current_product_url: Optional[str] = None
+    error_message: Optional[str] = None
+    products: Optional[List[Dict[str, Any]]] = None
+
+
+CategoryJobResponse.model_rebuild()
+

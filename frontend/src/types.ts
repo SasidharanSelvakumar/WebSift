@@ -35,6 +35,10 @@ export interface MedicineRecord {
   strength?: string | null;
   dosage_form?: string | null;
   active_ingredients?: string | null;
+  drug_schedule?: string | null;
+  pack_quantity?: string | null;
+  tags?: string | null;
+  safety_advice?: string | null;
   warnings?: string[];
   is_duplicate?: boolean;
 }
@@ -91,3 +95,47 @@ export interface SpreadsheetPushResponse {
   warnings?: string[];
   error_message?: string | null;
 }
+
+export type ScrapingMode = 'single' | 'category';
+
+export interface CategoryScrapeRequest {
+  category_url: string;
+  max_pages?: number;
+  max_products?: number;
+  delay_seconds?: number;
+  product_selector?: string;
+  next_page_selector?: string;
+  force_browser?: boolean;
+}
+
+export interface CategoryJobProduct {
+  product_url: string;
+  status: 'pending' | 'completed' | 'failed' | 'skipped';
+  attempt_count: number;
+  last_error?: string | null;
+  processing_timestamp?: string;
+  product_name?: string;
+  price?: string;
+  strength?: string;
+  dosage_form?: string;
+  manufacturer?: string;
+}
+
+export interface CategoryJobResponse {
+  job_id: string;
+  category_url: string;
+  job_status: 'running' | 'paused' | 'completed' | 'failed' | 'stopped' | 'incomplete';
+  start_time: string;
+  last_updated_time: string;
+  completion_time?: string | null;
+  pages_visited: number;
+  total_discovered: number;
+  total_completed: number;
+  total_failed: number;
+  total_skipped: number;
+  current_page_url?: string | null;
+  current_product_url?: string | null;
+  error_message?: string | null;
+  products?: CategoryJobProduct[];
+}
+

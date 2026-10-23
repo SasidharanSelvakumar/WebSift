@@ -11,6 +11,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 from backend.config import FORMULA_PREFIXES
+from backend.excel_formatter import FormattingConfig, format_worksheet_by_content
 from backend.medicine_models import MedicineBatch, MedicineRecord, SpreadsheetPushResponse
 
 
@@ -61,38 +62,13 @@ def generate_medicine_excel_workbook(
     if not headers:
         headers = ["Medicine Name", "Source URL", "Extracted At"]
 
-    # Header Styles
-    header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
-    header_font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
-    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
-    thin_border = Border(
-        left=Side(style="thin", color="CBD5E1"),
-        right=Side(style="thin", color="CBD5E1"),
-        top=Side(style="thin", color="CBD5E1"),
-        bottom=Side(style="thin", color="CBD5E1"),
-    )
-
     # 1. Write Header Row
-    ws.row_dimensions[1].height = 28
     for col_idx, header in enumerate(headers, 1):
-        cell = ws.cell(row=1, column=col_idx, value=header)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = header_alignment
-        cell.border = thin_border
+        ws.cell(row=1, column=col_idx, value=header)
 
-    # 2. Freeze header pane
-    ws.freeze_panes = "A2"
-
-    # Row Data Styles
-    body_font = Font(name="Segoe UI", size=10)
-    body_alignment = Alignment(vertical="top", wrap_text=True)
-
-    # 3. Write Medicine Rows
+    # 2. Write Medicine Rows
     for row_idx, record in enumerate(batch.records, 2):
-        ws.row_dimensions[row_idx].height = 36  # Good height for multi-line cells
         for col_idx, header in enumerate(headers, 1):
-            cell_value = ""
             if header == "Medicine Name":
                 cell_value = record.medicine_name
             elif header == "Source URL":
@@ -101,31 +77,15 @@ def generate_medicine_excel_workbook(
                 cell_value = record.extracted_at
             elif header in record.attributes:
                 cell_value = record.attributes[header]
+            else:
+                attr_name = header.lower().replace(" / composition", "").replace(" ", "_")
+                cell_value = getattr(record, attr_name, "") or ""
 
             sanitized = sanitize_excel_cell(cell_value)
-            cell = ws.cell(row=row_idx, column=col_idx, value=sanitized)
-            cell.font = body_font
-            cell.alignment = body_alignment
-            cell.border = thin_border
+            ws.cell(row=row_idx, column=col_idx, value=sanitized)
 
-    # 4. Auto-fit column widths (with min and max bounds)
-    for col_idx, header in enumerate(headers, 1):
-        max_len = len(str(header))
-        for row in range(2, min(len(batch.records) + 2, 50)):
-            val = ws.cell(row=row, column=col_idx).value
-            if val:
-                # Gauge first line length
-                line_len = len(str(val).split("\n")[0])
-                if line_len > max_len:
-                    max_len = line_len
-        col_letter = get_column_letter(col_idx)
-        adjusted_width = max(min(max_len + 4, 55), 14)
-        ws.column_dimensions[col_letter].width = adjusted_width
-
-    # 5. Enable Auto-filter across all columns
-    last_col_letter = get_column_letter(len(headers))
-    total_rows = max(len(batch.records) + 1, 2)
-    ws.auto_filter.ref = f"A1:{last_col_letter}{total_rows}"
+    # 3. Apply Content-Aware Dynamic Formatting
+    format_worksheet_by_content(ws)
 
     # Save to buffer
     buffer = io.BytesIO()
@@ -291,9 +251,8 @@ def adapt_and_push_to_local_excel(
 
         inserted_count += 1
 
-    # Update auto filter
-    last_col_letter = get_column_letter(len(final_columns))
-    ws.auto_filter.ref = f"A1:{last_col_letter}{ws.max_row}"
+    # Format entire sheet dynamically according to actual content
+    format_worksheet_by_content(ws)
 
     try:
         wb.save(target_file_path)
