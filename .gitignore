@@ -26,3 +26,7 @@ WebSift_Master.csv
 WebSift_Master.txt
 WebSift_Master_backup*
 *.xlsx
+
+# Downloaded Images (Mode C)
+output/
+

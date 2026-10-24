@@ -48,6 +48,17 @@ from backend.models import (
     ExtractRequest,
     ExtractResponse,
     HealthResponse,
+    ImageJobResponse,
+    ImageScrapeRequest,
+    ImageStorageStatusResponse,
+    OpenFolderRequest,
+    OpenFolderResponse,
+)
+from backend.image_downloader import (
+    OUTPUT_IMAGES_DIR,
+    active_image_jobs,
+    open_output_folder,
+    start_image_download_job,
 )
 from backend.spreadsheet_service import (
     get_default_destinations,
@@ -758,8 +769,106 @@ async def reprocess_database_endpoint():
         )
 
 
+# ============================================================================
+# Mode C: Medicine Image Downloader Endpoints
+# ============================================================================
+
+@app.post("/api/images/start", response_model=ImageJobResponse)
+async def start_image_scrape_endpoint(payload: ImageScrapeRequest):
+    """
+    Mode C: Initiates an incremental background image download job from a category or listing URL.
+    Discovers medicine names and product images, saves directly to output/medicine_images/,
+    and sanitizes filenames according to the actual medicine name.
+    """
+    try:
+        sanitized_url, _ = validate_and_sanitize_url(payload.listing_url)
+    except SSRFProtectionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"URL validation failed: {str(e)}",
+        )
+
+    try:
+        runner = start_image_download_job(
+            listing_url=sanitized_url,
+            max_pages=payload.max_pages,
+            max_images=payload.max_images,
+            delay_seconds=payload.delay_seconds,
+            product_selector=payload.product_selector,
+            next_page_selector=payload.next_page_selector,
+        )
+        return ImageJobResponse(**runner.to_dict())
+    except Exception as e:
+        logger.exception(f"Failed to start Mode C image job: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start image download job: {str(e)}",
+        )
+
+
+@app.get("/api/images/job/{job_id}", response_model=ImageJobResponse)
+async def get_image_job_status_endpoint(job_id: str):
+    """
+    Fetches real-time status and download counters for a Mode C image download job.
+    """
+    runner = active_image_jobs.get(job_id)
+    if not runner:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Image download job {job_id} not found.",
+        )
+    return ImageJobResponse(**runner.to_dict())
+
+
+@app.post("/api/images/job/{job_id}/stop", response_model=ImageJobResponse)
+async def stop_image_job_endpoint(job_id: str):
+    """
+    Gracefully stops an in-progress Mode C image download job.
+    """
+    runner = active_image_jobs.get(job_id)
+    if not runner:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Image download job {job_id} not found.",
+        )
+    runner.stop()
+    return ImageJobResponse(**runner.to_dict())
+
+
+@app.post("/api/images/open-folder", response_model=OpenFolderResponse)
+async def open_images_folder_endpoint(payload: Optional[OpenFolderRequest] = None):
+    """
+    Conveniently opens the local output/medicine_images/ folder in the host OS desktop file explorer.
+    """
+    folder_path = Path(payload.folder_path) if payload and payload.folder_path else OUTPUT_IMAGES_DIR
+    success, abs_path_str, err = open_output_folder(folder_path)
+    return OpenFolderResponse(
+        success=success,
+        folder_path=abs_path_str,
+        error_message=err,
+    )
+
+
+@app.get("/api/images/status", response_model=ImageStorageStatusResponse)
+async def get_image_storage_status_endpoint():
+    """
+    Returns the total count and byte size of downloaded images currently stored in output/medicine_images/.
+    """
+    OUTPUT_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+    images = [
+        f for f in OUTPUT_IMAGES_DIR.iterdir()
+        if f.is_file() and not f.name.endswith(".tmp") and not f.name.startswith(".")
+    ]
+    total_size = sum(f.stat().st_size for f in images)
+    return ImageStorageStatusResponse(
+        folder_path=str(OUTPUT_IMAGES_DIR.resolve()),
+        total_images=len(images),
+        total_size_bytes=total_size,
+    )
+
 
 # Serve frontend if static dist folder exists
 frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if frontend_dist.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+

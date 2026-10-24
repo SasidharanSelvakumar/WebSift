@@ -98,3 +98,52 @@ class CategoryJobResponse(BaseModel):
 
 CategoryJobResponse.model_rebuild()
 
+
+class ImageScrapeRequest(BaseModel):
+    listing_url: str = Field(..., description="Target medicine category or alphabet listing URL")
+    max_pages: Optional[int] = Field(default=None, ge=1, le=10000, description="Optional maximum pages to traverse (None for all pages)")
+    max_images: Optional[int] = Field(default=None, ge=1, le=50000, description="Optional maximum images to download (None for all)")
+    delay_seconds: float = Field(default=0.5, ge=0.0, le=10.0, description="Delay between requests in seconds")
+    product_selector: Optional[str] = Field(default=None, description="Optional CSS selector for product links")
+    next_page_selector: Optional[str] = Field(default=None, description="Optional CSS selector for Next page")
+
+
+class ImageJobResponse(BaseModel):
+    job_id: str
+    listing_url: str
+    job_status: str  # "running", "completed", "failed", "stopped", "incomplete"
+    start_time: str
+    last_updated_time: str
+    completion_time: Optional[str] = None
+    pages_visited: int = 0
+    total_discovered: int = 0
+    images_downloaded: int = 0
+    images_skipped: int = 0
+    images_failed: int = 0
+    images_remaining: int = 0
+    current_page_url: Optional[str] = None
+    current_product_url: Optional[str] = None
+    current_medicine_name: Optional[str] = None
+    output_dir: str
+    error_message: Optional[str] = None
+    recent_downloads: List[Dict[str, Any]] = []
+
+
+ImageJobResponse.model_rebuild()
+
+
+class OpenFolderRequest(BaseModel):
+    folder_path: Optional[str] = None
+
+
+class OpenFolderResponse(BaseModel):
+    success: bool
+    folder_path: str
+    error_message: Optional[str] = None
+
+
+class ImageStorageStatusResponse(BaseModel):
+    folder_path: str
+    total_images: int
+    total_size_bytes: int
+

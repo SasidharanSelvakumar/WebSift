@@ -4,6 +4,9 @@ import {
   ExtractResponse,
   ExtractedItem,
   HealthStatus,
+  ImageJobResponse,
+  ImageScrapeRequest,
+  ImageStorageStatus,
   MedicineBatch,
   SpreadsheetDestinationInfo,
   SpreadsheetPushResponse,
@@ -467,4 +470,87 @@ export async function downloadMasterTxt(jobId?: string): Promise<string> {
   triggerBrowserDownload(blob, filename);
   return filename;
 }
+
+// ============================================================================
+// Mode C: Medicine Image Downloader API
+// ============================================================================
+
+export async function startImageScrapeJob(
+  req: ImageScrapeRequest
+): Promise<ImageJobResponse> {
+  const res = await fetch(`${API_BASE}/images/start`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(req),
+  });
+
+  if (!res.ok) {
+    let errorDetail = 'Failed to start image download job.';
+    try {
+      const errJson = await res.json();
+      errorDetail = errJson.detail || errorDetail;
+    } catch {}
+    throw new Error(errorDetail);
+  }
+
+  return res.json();
+}
+
+export async function getImageJobStatus(jobId: string): Promise<ImageJobResponse> {
+  const res = await fetch(`${API_BASE}/images/job/${encodeURIComponent(jobId)}`);
+  if (!res.ok) {
+    let errorDetail = 'Failed to fetch image job status.';
+    try {
+      const errJson = await res.json();
+      errorDetail = errJson.detail || errorDetail;
+    } catch {}
+    throw new Error(errorDetail);
+  }
+  return res.json();
+}
+
+export async function stopImageJob(jobId: string): Promise<ImageJobResponse> {
+  const res = await fetch(`${API_BASE}/images/job/${encodeURIComponent(jobId)}/stop`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    let errorDetail = 'Failed to stop image download job.';
+    try {
+      const errJson = await res.json();
+      errorDetail = errJson.detail || errorDetail;
+    } catch {}
+    throw new Error(errorDetail);
+  }
+  return res.json();
+}
+
+export async function openOutputFolder(folderPath?: string): Promise<{ success: boolean; folder_path: string; error_message?: string }> {
+  const res = await fetch(`${API_BASE}/images/open-folder`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ folder_path: folderPath }),
+  });
+  if (!res.ok) {
+    let errorDetail = 'Failed to open output directory.';
+    try {
+      const errJson = await res.json();
+      errorDetail = errJson.detail || errorDetail;
+    } catch {}
+    throw new Error(errorDetail);
+  }
+  return res.json();
+}
+
+export async function getImageStorageStatus(): Promise<ImageStorageStatus> {
+  const res = await fetch(`${API_BASE}/images/status`);
+  if (!res.ok) {
+    throw new Error('Failed to fetch image storage status.');
+  }
+  return res.json();
+}
+
 

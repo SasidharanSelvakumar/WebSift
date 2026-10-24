@@ -11,8 +11,9 @@ import { MedicineTable } from './components/MedicineTable';
 import { SpreadsheetPushModal } from './components/SpreadsheetPushModal';
 import { checkBackendHealth, extractWebpage } from './api';
 import { ExtractResponse, HealthStatus } from './types';
-import { AlertCircle, Table, BookOpen, Code, CheckCircle, X, Pill, Layers } from 'lucide-react';
+import { AlertCircle, Table, BookOpen, Code, CheckCircle, X, Pill, Layers, Image as ImageIcon } from 'lucide-react';
 import { CategoryScraperView } from './components/CategoryScraperView';
+import { ImageDownloaderView } from './components/ImageDownloaderView';
 import { ScrapingMode } from './types';
 
 export const App: React.FC = () => {
@@ -132,13 +133,30 @@ export const App: React.FC = () => {
               }`}
             >
               <Layers className="w-4 h-4" />
-              <span>Mode B: Scrape Entire Category</span>
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-slate-950/40 text-emerald-950 font-bold">
+              <span>Mode B: Scrape Category</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setScrapingMode('images')}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                scrapingMode === 'images'
+                  ? 'bg-gradient-to-r from-sky-400 to-indigo-400 text-slate-950 shadow-md shadow-sky-500/20'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <ImageIcon className="w-4 h-4" />
+              <span>Mode C: Medicine Images</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-slate-950/40 text-sky-950 font-bold">
                 NEW
               </span>
             </button>
           </div>
         </div>
+
+        {/* Mode C: Medicine Image Downloader */}
+        {scrapingMode === 'images' && (
+          <ImageDownloaderView onNotify={handleNotify} />
+        )}
 
         {/* Mode B: Category Scraper */}
         {scrapingMode === 'category' && (

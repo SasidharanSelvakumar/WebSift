@@ -20,6 +20,15 @@ WebSift is a high-performance web scraping and product data extraction platform 
 - **SQLite Persistence & Deduplication**: Discovered products are immediately queued into SQLite. Interrupted jobs resume from the highest completed page without re-fetching page 1, and duplicate URLs across pages are skipped.
 - **Job Status Integrity**: Jobs are kept as `incomplete` if listing pages failed or products remain pending, ensuring runs are only marked `completed` once all data is verified.
 
+### Mode C: Medicine Image Downloader
+- **Direct Local Image Archival**: Scrapes medicine names and downloads corresponding product images directly into `output/medicine_images/`.
+- **Medicine-Based Filenames**: Names each image using its cleaned, sanitized medicine title (e.g., `Dolo_650.webp`, `Zincovit_Tablet.jpg`, `Augmentin_625.png`), preserving the original format extension.
+- **Collision Prevention**: If multiple products share the same medicine name, prevents overwriting by appending a unique product identifier or numeric suffix (e.g., `Dolo_650_41565.webp`).
+- **Duplicate Download Prevention**: Automatically detects if an image already exists on disk and skips re-downloading.
+- **Incremental Streaming**: Streams downloads directly to disk using temporary chunk buffers without loading thousands of images into memory.
+- **Failure Tolerance**: Gracefully records missing images or download errors without interrupting catalog traversal.
+- **Desktop Folder Integration**: Displays the absolute directory path with a one-click button to open the image folder directly in Windows Explorer or the native OS desktop file manager.
+
 ---
 
 ## 📊 Master Dataset Export
@@ -40,7 +49,8 @@ WebSift consolidates records into clean, production-ready master export files:
 
 | Module | File | Responsibility |
 |---|---|---|
-| **Category Scraper** | [`backend/category_scraper.py`](file:///c:/Users/SasidharanS/Desktop/Desktop/Web%20scrap/backend/category_scraper.py) | Background crawler orchestrator, listing pagination loop, product extraction loop, pause/resume/stop |
+| **Image Downloader** | [`backend/image_downloader.py`](file:///c:/Users/SasidharanS/Desktop/Desktop/Web%20scrap/backend/image_downloader.py) | Mode C engine: name sanitization, duplicate prevention, streaming image download, and desktop explorer opening |
+| **Category Scraper** | [`backend/category_scraper.py`](file:///c:/Users/SasidharanS/Desktop/Desktop/Web%20scrap/backend/category_scraper.py) | Mode B crawler orchestrator, listing pagination loop, product extraction loop, pause/resume/stop |
 | **URL Crawler & Pagination** | [`backend/crawler.py`](file:///c:/Users/SasidharanS/Desktop/Desktop/Web%20scrap/backend/crawler.py) | Link discovery, scope preservation, pagination discovery, loop defense, and sequential fallback |
 | **SQLite Persistence** | [`backend/database.py`](file:///c:/Users/SasidharanS/Desktop/Desktop/Web%20scrap/backend/database.py) | Thread-safe database manager for `products`, `scrape_jobs`, `job_products`, and `job_listing_pages` |
 | **Master Dataset Exporter** | [`backend/master_export.py`](file:///c:/Users/SasidharanS/Desktop/Desktop/Web%20scrap/backend/master_export.py) | Generates `WebSift_Master.xlsx`, master CSV with BOM, and master TXT reports |
@@ -99,7 +109,14 @@ Open your browser to: **`http://127.0.0.1:8000/`**
 
 ## 📡 API Reference
 
-### Category & Alphabet Crawling
+### Mode C: Medicine Image Downloader
+- **`POST /api/images/start`**: Start an image scraping job with optional `max_pages`, `max_images`, or `delay_seconds`.
+- **`GET /api/images/job/{job_id}`**: Retrieve real-time image download counters (`downloaded`, `remaining`, `skipped`, `failed`) and live feed.
+- **`POST /api/images/job/{job_id}/stop`**: Gracefully stop an active image download job.
+- **`POST /api/images/open-folder`**: Launch the local `output/medicine_images/` directory in the OS file manager.
+- **`GET /api/images/status`**: Return count and total size of downloaded images on disk.
+
+### Mode B: Category & Alphabet Crawling
 - **`POST /api/category/start`**: Launch a background scraping job with optional `max_pages`, `max_products`, or `delay_seconds`.
 - **`GET /api/category/job/{job_id}`**: Retrieve real-time progress metrics (pages visited, discovered, completed, failed, pending) and live ticker.
 - **`POST /api/category/job/{job_id}/pause`**: Pause an active crawl.
@@ -108,7 +125,7 @@ Open your browser to: **`http://127.0.0.1:8000/`**
 - **`POST /api/category/job/{job_id}/retry-failed`**: Reset failed listing pages and failed products to `pending` and resume processing.
 - **`GET /api/category/export/{excel|csv|txt}?job_id={job_id}`**: Export master datasets for a specific job or all completed records.
 
-### Single Product Scraping
+### Mode A: Single Product Scraping
 - **`POST /api/extract`**: Extract structured data and specifications from an individual product URL.
 - **`POST /api/export/{excel|csv|txt}`**: Download extracted single batch data.
 - **`POST /api/spreadsheet/push`**: Push extracted batch into local or cloud spreadsheets.
@@ -117,16 +134,18 @@ Open your browser to: **`http://127.0.0.1:8000/`**
 
 ## 🧪 Automated Testing
 
-WebSift includes **93 automated tests** verifying crawling, schema validation, pagination fallback, and export formatting:
+WebSift includes **103 automated tests** verifying crawling, schema validation, pagination fallback, export formatting, and image archival:
 
 ```bash
 python -m pytest tests/ -v
 ```
 
 Tests cover:
+- Mode C medicine image streaming, filename sanitization (`Dolo_650.webp`), and duplicate collision resolution.
 - Multi-page alphabet traversal past high page boundaries (pages 17, 20, 25+).
 - Alphabet query parameter isolation and preservation (`label=p`).
 - Fallback sequential pagination when Next button tags are missing from HTML.
 - Fault tolerance and recovery from temporary listing page errors.
 - SQLite state tracking, duplicate avoidance, and seamless resume without repeating page 1.
 - RFC-4180 CSV with UTF-8 BOM, content-aware Excel styling, and single-product extraction endpoints.
+
